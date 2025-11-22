@@ -1,0 +1,124 @@
+Entities.txt
+
+Users.java
+package com.example.Skills_Share_Scheduler.Entity;
+
+import java.time.LocalDateTime;
+import jakarta.persistence.*;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotNull;
+import lombok.*;
+
+@Entity
+@Table(name = "users")
+@AllArgsConstructor
+@Data
+@NoArgsConstructor
+public class Users {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "user_id")     // DB - name
+    private int userId;           
+
+    @NotNull
+    @Column(unique = true)
+    private String username;
+
+    @NotNull
+    private String password;
+    
+    @NotNull
+    private String role;
+
+    private String fullName;
+
+    @Email
+    private String email;
+
+    private LocalDateTime createdAt;
+}
+
+
+--------------------------------------------------------------------------------------------------
+
+Booking.java
+package com.example.Skills_Share_Scheduler.Entity;
+
+import java.time.LocalDateTime;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Entity
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Table(
+    name = "booking",
+    uniqueConstraints = @UniqueConstraint(columnNames = "slot_id")   // Prevent double booking
+)
+public class Booking {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "booking_id")   // <-- DB column
+    private int bookingId;         // <-- JAVA field (correct camelCase)
+
+    @OneToOne
+    @JoinColumn(name = "slot_id", nullable = false)
+    private AvailiablityOfSlots slot;
+
+    @ManyToOne
+    @JoinColumn(name = "mentee_id", nullable = false)
+    private Users mentee;
+
+    private String status;
+
+    private LocalDateTime bookedAt;
+}
+
+
+
+--------------------------------------------------------------------------------------------------
+
+AvailiablityOfSlots.java
+package com.example.Skills_Share_Scheduler.Entity;
+
+import java.time.LocalDateTime;
+
+import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+@Entity
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Table(name = "slots")
+public class AvailiablityOfSlots {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "slot_id")
+    private int slotId;
+
+    @NotNull
+    @ManyToOne
+    @JoinColumn(name = "mentor_id", nullable = false)
+    private Users mentor;
+
+    private LocalDateTime startTime;
+    private LocalDateTime endTime;
+
+    @Column(name = "is_booked")
+    private boolean isBooked;
+
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+}
+

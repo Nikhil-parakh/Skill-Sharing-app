@@ -1,0 +1,687 @@
+--------------------------------------------------------------------------------------
+security.java
+--------------------------------------------------------------------------------------
+
+package com.example.Skills_Share_Scheduler.Config;
+
+import static org.springframework.security.config.Customizer.withDefaults;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+
+@Configuration
+public class Security {
+
+    @Autowired
+    private UserDetailsService userDetailsService;
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+                .csrf(csrf -> csrf.disable())
+                .authorizeHttpRequests(auth -> auth
+
+                        // PUBLIC ENDPOINTS
+                        .requestMatchers("/User/Register", "/User/Login").permitAll()
+
+                        // ADMIN ONLY
+                        .requestMatchers("/User/All_Users").hasRole("ADMIN")
+
+                        // SELF or ADMIN (handled in service layer)
+                        .requestMatchers("/User/Update/**").authenticated()
+                        .requestMatchers("/User/Delete/**").authenticated()
+
+                        // ANY LOGGED IN USER (MENTOR / MENTEE / ADMIN)
+                        .requestMatchers("/User/User_Id/**", "/User/Username/**").authenticated()
+
+                        .anyRequest().authenticated())
+                .httpBasic(withDefaults());
+        return http.build();
+    }
+
+    @SuppressWarnings("deprecation")
+    @Bean
+    public AuthenticationProvider authenticationProvider() {
+        DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
+        provider.setPasswordEncoder(new BCryptPasswordEncoder(10));
+        provider.setUserDetailsService(userDetailsService);
+
+        return provider;
+    }
+
+    @Bean
+    public BCryptPasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder(10);
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
+    }
+}
+
+
+--------------------------------------------------------------------------------------
+UserController.java
+--------------------------------------------------------------------------------------
+
+package com.example.Skills_Share_Scheduler.Controller;
+
+import java.util.List;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.example.Skills_Share_Scheduler.Entity.LoginRequest;
+import com.example.Skills_Share_Scheduler.Entity.UserUpdateDto;
+import com.example.Skills_Share_Scheduler.Entity.Users;
+import com.example.Skills_Share_Scheduler.Service.UserService;
+
+import jakarta.validation.Valid;
+
+@RequestMapping("/User")
+@RestController
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @GetMapping("/All_Users")
+    public ResponseEntity<List<Users>> getAll() {
+        return new ResponseEntity<>(userService.getUsers(), HttpStatus.OK);
+    }
+
+    @GetMapping("/User_Id/{Id}")
+    public ResponseEntity<Users> getUserById(@PathVariable int Id) {
+        Users user = userService.getUserByUserId(Id).orElse(null);
+        if (user != null) {
+            return new ResponseEntity<>(user, HttpStatus.OK);
+        } else
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+    }
+
+    @GetMapping("/Username/{username}")
+    public ResponseEntity<Users> getUserByUsername(@PathVariable String username) {
+        Users user = userService.getUserByUsername(username).orElse(null);
+        if (user != null) {
+            return new ResponseEntity<>(user, HttpStatus.OK);
+        } else
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+    }
+
+    @PostMapping("/Register")
+    public ResponseEntity<?> register(@Valid @RequestBody Users user) {
+        Users addUser;
+        try {
+            addUser = userService.registerUser(user);
+        } catch (Exception ex) {
+            return new ResponseEntity<>("Got an Error: " + ex.getMessage(), HttpStatus.BAD_REQUEST);
+        }
+        return new ResponseEntity<>(addUser, HttpStatus.OK);
+    }
+
+    @PostMapping("/Login")
+    public ResponseEntity<?> login(@RequestBody LoginRequest credentials) {
+        String response = userService.verify(credentials.getUsername(), credentials.getPassword());
+
+        if (response.equals("success"))
+            return ResponseEntity.ok("Login Successful");
+        else
+            return new ResponseEntity<>("Invalid Credentials...", HttpStatus.UNAUTHORIZED);
+    }
+
+    @PutMapping("/Update/{targetID}")
+    public ResponseEntity<?> updateUser(@PathVariable int targetID, @RequestBody UserUpdateDto newUser,
+            @RequestHeader("actingUsername") String actingUsername) {
+
+        try {
+            Users user = userService.updateUserProfile(targetID, newUser, actingUsername);
+            return ResponseEntity.ok(user);
+        } catch (Exception ex) {
+            return new ResponseEntity<>(ex.getMessage(), HttpStatus.FORBIDDEN);
+        }
+
+    }
+
+    @DeleteMapping("/Delete/{targetId}")
+    public ResponseEntity<?> deleteById(@PathVariable int targetId,
+            @RequestHeader("actingUsername") String actingusername) {
+
+        try {
+            userService.deleteById(targetId, actingusername);
+            return ResponseEntity.ok("User Deleted SuccessFuly");
+        } catch (Exception ex) {
+            return new ResponseEntity<>(ex.getMessage(), HttpStatus.FORBIDDEN);
+        }
+    }
+}
+
+--------------------------------------------------------------------------------------
+AvailiablityOfSlots.java
+--------------------------------------------------------------------------------------
+
+package com.example.Skills_Share_Scheduler.Entity;
+
+import java.time.LocalDateTime;
+
+import jakarta.persistence.*;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.AllArgsConstructor;
+
+@Entity
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Table(name = "slots")
+public class AvailiablityOfSlots {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "slot_id")
+    private int slotId;
+
+    @NotNull
+    @ManyToOne
+    @JoinColumn(name = "mentor_id", nullable = false)
+    private Users mentor;
+
+    private LocalDateTime startTime;
+    private LocalDateTime endTime;
+
+    @Column(name = "is_booked")
+    private boolean isBooked;
+
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+}
+
+
+--------------------------------------------------------------------------------------
+Booking.java
+--------------------------------------------------------------------------------------
+
+package com.example.Skills_Share_Scheduler.Entity;
+import java.time.LocalDateTime;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Entity
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Table(
+    name = "booking",
+    uniqueConstraints = @UniqueConstraint(columnNames = "slot_id")   // Prevent double booking
+)
+public class Booking {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "booking_id")   // <-- DB column
+    private int bookingId;         // <-- JAVA field (correct camelCase)
+
+    @OneToOne
+    @JoinColumn(name = "slot_id", nullable = false)
+    private AvailiablityOfSlots slot;
+
+    @ManyToOne
+    @JoinColumn(name = "mentee_id", nullable = false)
+    private Users mentee;
+
+    private String status;
+
+    private LocalDateTime bookedAt;
+}
+
+--------------------------------------------------------------------------------------
+Users.java
+--------------------------------------------------------------------------------------
+
+package com.example.Skills_Share_Scheduler.Entity;
+
+import java.time.LocalDateTime;
+import jakarta.persistence.*;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotNull;
+import lombok.*;
+
+@Entity
+@Table(name = "users")
+@AllArgsConstructor
+@Data
+@NoArgsConstructor
+public class Users {
+    
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "user_id")     // DB - name
+    private int userId;           
+
+    @NotNull
+    @Column(unique = true)
+    private String username;
+
+    @NotNull
+    private String password;
+    
+    @NotNull
+    private String role;
+
+    private String fullName;
+
+    @Email
+    private String email;
+
+    private LocalDateTime createdAt;
+}
+
+
+--------------------------------------------------------------------------------------
+CustomUserDetails.java
+--------------------------------------------------------------------------------------
+
+package com.example.Skills_Share_Scheduler.Entity;
+
+import java.util.Collection;
+import java.util.List;
+
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+
+public class CustomUserDetails implements UserDetails {
+
+    private Users user;
+
+    public CustomUserDetails(Users user) {
+        this.user = user;
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().toUpperCase()));
+    }
+
+    @Override
+    public String getPassword() {
+        return user.getPassword();
+    }
+
+    @Override
+    public String getUsername() {
+        return user.getUsername();
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+}
+
+
+--------------------------------------------------------------------------------------
+LoginRequest.java
+--------------------------------------------------------------------------------------
+package com.example.Skills_Share_Scheduler.Entity;
+
+import lombok.Data;
+
+@Data
+public class LoginRequest {
+    private String username;
+    private String password;
+}
+
+
+--------------------------------------------------------------------------------------
+UserUpdateDto.java
+--------------------------------------------------------------------------------------
+package com.example.Skills_Share_Scheduler.Entity;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@NoArgsConstructor
+@Data
+@AllArgsConstructor
+public class UserUpdateDto {
+    private String fullName;
+    private String email;
+    private String username;
+    private String role;  // only admin can update
+}
+
+--------------------------------------------------------------------------------------
+GlobalExceptionHandler.java
+--------------------------------------------------------------------------------------
+
+package com.example.Skills_Share_Scheduler.Exceptions;
+
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    // 1. USER ALREADY EXISTS
+    @ExceptionHandler(UserAlreadyExistsException.class)
+    public ResponseEntity<?> handleUserAlreadyExists(UserAlreadyExistsException ex) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    // 2. INVALID INPUT (like invalid role)
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<?> handleIllegalArguments(IllegalArgumentException ex) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    // 3. RUNTIME EXCEPTIONS (Not found, not allowed)
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<?> handleRuntime(RuntimeException ex) {
+        return build(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
+    // 4. VALIDATION ERRORS (@Valid)
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<?> handleValidation(MethodArgumentNotValidException ex) {
+
+        Map<String, String> errorMap = new HashMap<>();
+        ex.getBindingResult().getFieldErrors().forEach(err ->
+            errorMap.put(err.getField(), err.getDefaultMessage())
+        );
+
+        return new ResponseEntity<>(errorMap, HttpStatus.BAD_REQUEST);
+    }
+
+    // 5. FALLBACK - UNKNOWN ERROR
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<?> handleOther(Exception ex) {
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong: " + ex.getMessage());
+    }
+
+    // COMMON RESPONSE STRUCTURE
+    private ResponseEntity<?> build(HttpStatus status, String message) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("timestamp", LocalDateTime.now());
+        error.put("status", status.value());
+        error.put("error", status.getReasonPhrase());
+        error.put("message", message);
+
+        return new ResponseEntity<>(error, status);
+    }
+}
+
+--------------------------------------------------------------------------------------
+UserAlreadyExistsException.java
+--------------------------------------------------------------------------------------
+
+package com.example.Skills_Share_Scheduler.Exceptions;
+
+public class UserAlreadyExistsException extends RuntimeException{
+    public UserAlreadyExistsException(String message){
+        super(message);
+    }
+}
+
+--------------------------------------------------------------------------------------
+BookingRepo.java
+--------------------------------------------------------------------------------------
+package com.example.Skills_Share_Scheduler.Repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import com.example.Skills_Share_Scheduler.Entity.Booking;
+
+public interface BookingRepo extends JpaRepository<Booking, Integer>{
+
+}
+
+--------------------------------------------------------------------------------------
+SlotsRepo.java
+--------------------------------------------------------------------------------------
+package com.example.Skills_Share_Scheduler.Repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import com.example.Skills_Share_Scheduler.Entity.AvailiablityOfSlots;
+
+public interface SlotsRepo extends JpaRepository<AvailiablityOfSlots, Integer>{
+
+}
+
+
+--------------------------------------------------------------------------------------
+UserRepo.java
+--------------------------------------------------------------------------------------
+package com.example.Skills_Share_Scheduler.Repository;
+
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+import com.example.Skills_Share_Scheduler.Entity.Users;
+
+public interface UserRepo extends JpaRepository<Users, Integer>{
+
+    Optional<Users> findByUsername(String username);
+
+}
+
+
+--------------------------------------------------------------------------------------
+CustomUserDetailsService.java
+--------------------------------------------------------------------------------------
+package com.example.Skills_Share_Scheduler.Service;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+
+import com.example.Skills_Share_Scheduler.Entity.CustomUserDetails;
+import com.example.Skills_Share_Scheduler.Entity.Users;
+import com.example.Skills_Share_Scheduler.Repository.UserRepo;
+
+@Service
+public class CustomUserDetailsService implements UserDetailsService {
+
+    @Autowired
+    private UserRepo userRepo;
+
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+
+        Users user = userRepo.findByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with username: " + username));
+
+        return new CustomUserDetails(user);
+    }
+}
+
+--------------------------------------------------------------------------------------
+UserService.java
+--------------------------------------------------------------------------------------
+package com.example.Skills_Share_Scheduler.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import com.example.Skills_Share_Scheduler.Entity.UserUpdateDto;
+import com.example.Skills_Share_Scheduler.Entity.Users;
+import com.example.Skills_Share_Scheduler.Exceptions.UserAlreadyExistsException;
+import com.example.Skills_Share_Scheduler.Repository.UserRepo;
+
+import jakarta.transaction.Transactional;
+
+@Service
+public class UserService {
+
+    @Autowired
+    private UserRepo userRepo;
+
+    @Autowired
+    private BCryptPasswordEncoder encoder;
+
+    @Autowired
+    private AuthenticationManager authenticationManager;
+
+
+    @Transactional
+    public Users registerUser(Users user) throws UserAlreadyExistsException {
+        if(userRepo.findByUsername(user.getUsername()).isPresent()){
+            throw new UserAlreadyExistsException("User is Already Register, try AnotherName");
+        }
+
+        String role = user.getRole();
+        if(role == null || role.isEmpty()){
+            user.setRole("MENTEE");
+        } else{
+            role = role.toUpperCase();
+            
+            if(role.equals("ADMIN")){
+                throw new IllegalArgumentException("Can't register as ADMIN");
+            }
+            if(!role.equals("MENTEE") && !role.equals("MENTOR")){
+                throw new IllegalArgumentException("Invalid Roles! Allowed roles are: MENTEE or MENTOR");
+            }
+            user.setRole(role);
+        }
+        user.setPassword(encoder.encode(user.getPassword()));
+        user.setCreatedAt(LocalDateTime.now());
+        return userRepo.save(user);
+    }
+
+    public String verify(String username, String password){
+        Authentication authentication = authenticationManager
+            .authenticate(new UsernamePasswordAuthenticationToken(username, password));
+
+        return authentication.isAuthenticated() ? "success" : "fail";  // i will do this later.
+    }
+
+    public List<Users> getUsers(){
+        return userRepo.findAll();
+    }
+
+    public Optional<Users> getUserByUsername(String username){
+        return userRepo.findByUsername(username);
+    }
+
+    public Optional<Users> getUserByUserId(int id){
+        return userRepo.findById(id);
+    }
+
+    @Transactional
+    public void deleteById(int targetUserId,String actingUsrname){
+        Users actingUser = userRepo.findByUsername(actingUsrname).orElse(null);
+        if(actingUser == null){
+            throw new RuntimeException("Acting user not found");
+        }
+
+        Users targetUser = userRepo.findById(targetUserId).orElse(null);
+        if(targetUser == null){
+            throw new RuntimeException("Target user not found");
+        }
+
+        String role = actingUser.getRole().toUpperCase();
+
+        if(!role.equals("ADMIN")){
+
+            if(actingUser.getUserId() != targetUserId){
+                throw new RuntimeException("you are not allowed to delete another user");
+            }
+        }
+        userRepo.delete(targetUser);
+    }
+
+    @Transactional
+    public Users updateUserProfile(int targetUserId, UserUpdateDto newUser, String actingUsername){
+        Users actingUser = userRepo.findByUsername(actingUsername).orElse(null);
+        if(actingUser == null){
+            throw new RuntimeException("Acting user not found");
+        }
+
+        Users targetUsers = userRepo.findById(targetUserId).orElse(null);
+            // .orElseThrow(() -> new RuntimeException("user to delete not Found"));
+        if(targetUsers == null){
+            throw new RuntimeException("Target user not found");
+        }
+
+        String role = actingUser.getRole().toUpperCase();
+
+        if(!role.equals("ADMIN")){
+            if(actingUser.getUserId() != targetUserId){
+                throw new RuntimeException("you are not allowed to modify any others profile.");
+            }
+        }
+
+        if(newUser.getFullName() != null) targetUsers.setFullName(newUser.getFullName()); 
+        if(newUser.getUsername() != null) targetUsers.setUsername(newUser.getUsername()); 
+        if(newUser.getEmail() != null) targetUsers.setEmail(newUser.getEmail()); 
+
+        if(newUser.getRole() != null){
+            if(!actingUser.getRole().equals("ADMIN")){
+                throw new RuntimeException("Only Admin can change the role of an User sorry!");
+            }
+            String newRole = newUser.getRole().toUpperCase();
+            if (!newRole.equals("MENTEE") && !newRole.equals("MENTOR") && !newRole.equals("ADMIN")) {
+                throw new RuntimeException("Invalid role");
+            }
+            targetUsers.setRole(newRole);
+        }
+        return userRepo.save(targetUsers);
+    }
+
+}
+
+

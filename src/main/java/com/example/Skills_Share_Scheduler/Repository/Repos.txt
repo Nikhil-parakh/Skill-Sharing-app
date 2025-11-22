@@ -1,0 +1,34 @@
+package com.example.Skills_Share_Scheduler.Repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.example.Skills_Share_Scheduler.Entity.Users;
+
+public interface UserRepo extends JpaRepository<Users, Integer>{
+    
+}
+
+
+---------------------------------------------------------------------------------------------------
+
+package com.example.Skills_Share_Scheduler.Repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.example.Skills_Share_Scheduler.Entity.AvailiablityOfSlots;
+
+public interface SlotsRepo extends JpaRepository<AvailiablityOfSlots, Integer>{
+
+}
+
+----------------------------------------------------------------------------------------------------
+
+package com.example.Skills_Share_Scheduler.Repository;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import com.example.Skills_Share_Scheduler.Entity.Booking;
+
+public interface BookingRepo extends JpaRepository<Booking, Integer>{
+
+}
